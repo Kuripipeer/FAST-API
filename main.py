@@ -153,10 +153,11 @@ def get_albums() -> List[Album]:
 
 @app.get('/albums/{id}', tags=['Albums'], response_model=Album)
 def get_album(id: int = Path(ge=1, le=2000)) -> Album:
-    for item in albums:
-        if item['id'] == id:
-            return JSONResponse(content=item)
-    return JSONResponse(status_code=404,content=[])
+    db = Session()
+    result = db.query(AlbumModel).filter(AlbumModel.id == id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Album not found"})
+    return JSONResponse(status_code=200,content= jsonable_encoder(result))
 
 @app.get('/albums/', tags=['Albums'], response_model=List[Album])
 def get_album_by_genre(genero: str = Query(min_length=3, max_length=15)) -> List[Album]:
