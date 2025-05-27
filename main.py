@@ -6,7 +6,14 @@ from jwt_manager import create_token, validate_token
 from fastapi.security import HTTPBearer
 from config.database import Session, engine, Base
 from models.album import Album as AlbumModel
+from models.computer import Computer as ComputerModel
 from fastapi.encoders import jsonable_encoder
+
+app = FastAPI()
+app.title = "Mi primera aplicación con FastAPI"
+app.version = "0.0.1"
+
+Base.metadata.create_all(bind=engine)
 
 class User(BaseModel):
     email: str
@@ -19,12 +26,6 @@ class JWTBearer(HTTPBearer):
         if data['email'] != "admin@gmail.com":
             raise HTTPException(status_code=403, detail="Credenciales Invalidas")
 
-
-app = FastAPI()
-app.title = "Mi primera aplicación con FastAPI"
-app.version = "0.0.1"
-
-Base.metadata.create_all(bind=engine)
 
 class Album(BaseModel):
     id: Optional[int] | None # Indicamos que es opcional
@@ -151,7 +152,7 @@ def get_albums() -> List[Album]:
     result = db.query(AlbumModel).all()
     return JSONResponse(status_code=200, content= jsonable_encoder(result))
 
-@app.get('/albums/{id}', tags=['Albums'], response_model=Album)
+@app.get('/albums/{id}', tags=['Albums'], response_model=Album, dependencies=[Depends(JWTBearer())])
 def get_album(id: int = Path(ge=1, le=2000)) -> Album:
     db = Session()
     result = db.query(AlbumModel).filter(AlbumModel.id == id).first()
@@ -159,12 +160,13 @@ def get_album(id: int = Path(ge=1, le=2000)) -> Album:
         return JSONResponse(status_code=404, content={"message": "Album not found"})
     return JSONResponse(status_code=200,content= jsonable_encoder(result))
 
-@app.get('/albums/', tags=['Albums'], response_model=List[Album])
+@app.get('/albums/', tags=['Albums'], response_model=List[Album], dependencies=[Depends(JWTBearer())])
 def get_album_by_genre(genero: str = Query(min_length=3, max_length=15)) -> List[Album]:
-    data = [item for item in albums if item['genre'] == genero]
-    return JSONResponse(content = data)
+    db =  Session()
+    result = db.query(AlbumModel).filter(AlbumModel.genre == genero).all()
+    return JSONResponse(status_code=200, content = jsonable_encoder(result))
 
-@app.post('/albums', tags=['Albums'], response_model = dict, status_code=201)
+@app.post('/albums', tags=['Albums'], response_model = dict, status_code=201, dependencies=[Depends(JWTBearer())])
 def crear_album (album: Album) -> dict:
     db = Session()
     # Utilizamos el modelo y le pasamos la información a registrar
@@ -173,29 +175,34 @@ def crear_album (album: Album) -> dict:
     db.add(new_album)
     #Guardamos los datos
     db.commit()
-    albums.append(album)
     return JSONResponse(status_code=201,content = {"message" : "Se ha registrado el album"})
 
-@app.put('/albums/{id}', tags=['Albums'], response_model = dict, status_code=200)
+@app.put('/albums/{id}', tags=['Albums'], response_model = dict, status_code=200, dependencies=[Depends(JWTBearer())])
 def update_album (id: int, album: Album) -> dict:
-    for item in albums:
-        if item['id'] == id:
-            item['title'] = album.title
-            item['artist'] = album.artist
-            item['overview'] = album.overview
-            item['year'] = album.year
-            item['rating'] = album.rating
-            item['genre'] = album.genre
-            return JSONResponse(status_code=200,content={"message":"Se ha actualizado el album"})
-    return JSONResponse(content=[])
+    db = Session()
+    result = db.query(AlbumModel).filter(AlbumModel.id == id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Album not found"})
+    # Actualizamos el album
+    result.title = album.title
+    result.artist = album.artist
+    result.overview = album.overview
+    result.year = album.year
+    result.rating = album.rating
+    result.genre = album.genre
+    # Guardamos los cambios
+    db.commit()
+    return JSONResponse(status_code=200, content={"message": "Se ha modificado el album"})
 
-@app.delete('/albums/{id}', tags=['Albums'], response_model= dict, status_code=200)
+@app.delete('/albums/{id}', tags=['Albums'], response_model= dict, status_code=200, dependencies=[Depends(JWTBearer())])
 def delete_album(id: int) -> dict:
-    for item in albums:
-        if item['id'] == id:
-            albums.remove(item)
-            return JSONResponse(status_code=200,content={"message":"Se ha eliminado el album"})
-    return JSONResponse(content=[])
+    db = Session()
+    result = db.query(AlbumModel).filter(AlbumModel.id == id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Album not found"})
+    db.delete(result)
+    db.commit()
+    return JSONResponse(status_code=200, content={"message": "Se ha Eliminado el album"})
 
 # Realiza los endpoints para la venta de computadoras con una lista de 10 registros con los siguientes atributos:
 # - id
@@ -316,54 +323,59 @@ computers = [
     }
 ] 
 
-@app.get('/computers', tags=['Computers'], response_model=List[Computer], status_code=200)
+@app.get('/computers', tags=['Computers'], response_model=List[Computer], status_code=200, dependencies=[Depends(JWTBearer())])
 def get_computers() -> List[Computer]:
-    return JSONResponse(status_code=200, content=computers)
+    db = Session()
+    result = db.query(ComputerModel).all()
+    return JSONResponse(status_code=200, content= jsonable_encoder(result))
 
-@app.get('/computers/{id}', tags=['Computers'], response_model=Computer, responses={404: {"description": "Computer not found"}})
+@app.get('/computers/{id}', tags=['Computers'], response_model=Computer, responses={404: {"description": "Computer not found"}}, dependencies=[Depends(JWTBearer())])
 def get_computer(id: int = Path(ge=1, le=2000)) -> Computer:
-    for computer in computers:
-        if computer['id'] == id:
-            return JSONResponse(status_code=200, content=computer)
-    return JSONResponse(status_code=404, content= [])
+    db = Session()
+    result = db.query(ComputerModel).filter(ComputerModel.id == id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Computer not found"})
+    return JSONResponse(status_code=200, content= jsonable_encoder(result))
 
-@app.get('/computers/', tags=['Computers'], response_model=List[Computer], responses={404: {"description": "Computer not found"}})
+@app.get('/computers/', tags=['Computers'], response_model=List[Computer], responses={404: {"description": "Computer not found"}}, dependencies=[Depends(JWTBearer())])
 def get_computer_by_brand(brand: str = Query(min_length=1, max_length=25)) -> List[Computer]:
-    results = []
-    for computer in computers:
-        if computer['brand'].lower() == brand.lower():
-            results.append(computer)
-    if not results:
-        return JSONResponse(status_code=404, content= [])
-    return JSONResponse(status_code=200, content=results)
+    db = Session()
+    result = db.query(ComputerModel).filter(ComputerModel.brand.ilike(brand)).all()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Computer not found"})
+    return JSONResponse(status_code=200, content=jsonable_encoder(result))
 
-@app.post('/computers', tags=['Computers'], response_model= dict, status_code=201)
+@app.post('/computers', tags=['Computers'], response_model= dict, status_code=201, dependencies=[Depends(JWTBearer())])
 def crear_computer(computer: Computer) -> dict:
-    new_id = max([comp['id'] for comp in computers], default=0) + 1
-    computer_dict = {"id" : new_id}
-    computer_dict.update(computer.dict())
-    computers.append(computer_dict)
-    return JSONResponse(status_code=201, content = {"message" : "Se ha registrado la computadora"})
+    db = Session()
+    new_computer = ComputerModel(**computer.model_dump())
+    db.add(new_computer)
+    db.commit()
+    return JSONResponse(status_code=201, content={"message": "Se ha registrado la computadora"})
 
-@app.put('/computers/{id}', tags=['Computers'], response_model= dict, responses={404: {"description": "Computer not found"}})
+@app.put('/computers/{id}', tags=['Computers'], response_model= dict, responses={404: {"description": "Computer not found"}}, dependencies=[Depends(JWTBearer())])
 def update_computer (id: int, computer: Computer) -> dict:
-    for item in computers:
-        if item['id'] == id:
-            item['brand'] = computer.brand
-            item['model'] = computer.model
-            item['color'] = computer.color
-            item['ram'] = computer.ram
-            item['storage'] = computer.storage
-            return JSONResponse(status_code=200, content={"message":"Se ha actualizado la computadora"})
-    return JSONResponse(status_code=404, content={"message":"No se ha encontrado la computadora"})
+    db = Session()
+    result = db.query(ComputerModel).filter(ComputerModel.id == id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Computer not found"})
+    result.brand = computer.brand
+    result.model = computer.model
+    result.color = computer.color
+    result.ram = computer.ram
+    result.storage = computer.storage
+    db.commit()
+    return JSONResponse(status_code=200, content={"message": "Se ha modificado la computadora"})
 
-@app.delete('/computers/{id}', tags=['Computers'], response_model= dict, responses={404: {"description": "Computer not found"}})
+@app.delete('/computers/{id}', tags=['Computers'], response_model= dict, responses={404: {"description": "Computer not found"}}, dependencies=[Depends(JWTBearer())])
 def delete_computer(id: int):
-    for item in computers:
-        if item['id'] == id:
-            computers.remove(item)
-            return JSONResponse(status_code=200, content={"message":"Se ha eliminado la computadora"})
-    return JSONResponse(status_code=404, content={"message":"No se ha encontrado la computadora"})
+    db = Session()
+    result = db.query(ComputerModel).filter(ComputerModel.id == id).first()
+    if not result:
+        return JSONResponse(status_code=404, content={"message": "Computer not found"})
+    db.delete(result)
+    db.commit()
+    return JSONResponse(status_code=200, content={"message": "Se ha eliminado la computadora"})
 
 @app.post('/login', tags=['Auth'])
 def login(user: User):
@@ -372,4 +384,4 @@ def login(user: User):
         return JSONResponse(status_code=200, content=token)
 
 
-# uvicorn main:app --reload --port 8000 --host 0.0.0.0 -m -> python3 venv venv -> source venv/bin/activate -> pip install fastapi -> pip install uvicorn -> uvicorn main:app --reload --port 8000 --host 0.0.0.0 -> Deactivate
+# python3 venv venv -> source venv/bin/activate -> pip install fastapi -> pip install uvicorn -> uvicorn main:app --reload --port 8000 --host 0.0.0.0 -> Deactivate
